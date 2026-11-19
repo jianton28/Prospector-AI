@@ -13,6 +13,7 @@ import {
   PriorityLevel,
   getProspectFollowUp,
 } from "@/types/prospector";
+import { useTodayStr } from "@/lib/hooks/useTodayStr";
 
 const STATUS_OPTIONS: { value: ProspectStatus; label: string }[] = [
   { value: "por_analizar", label: "Por analizar" },
@@ -87,21 +88,23 @@ interface FullDiagnosisData {
   website_audit_findings?: string[];
 }
 
-function getFollowUpStatus(dateStr: string): {
+function getFollowUpStatus(
+  dateStr: string,
+  todayStr: string
+): {
   label: string;
   badgeClass: string;
   dotClass: string;
 } | null {
   if (!dateStr) return null;
-  const today = new Date().toISOString().split("T")[0];
-  if (dateStr < today) {
+  if (todayStr && dateStr < todayStr) {
     return {
       label: `Vencido (${dateStr})`,
       badgeClass: "bg-red-950/60 text-red-300 border-red-800/80",
       dotClass: "bg-red-400",
     };
   }
-  if (dateStr === today) {
+  if (todayStr && dateStr === todayStr) {
     return {
       label: "Seguimiento HOY",
       badgeClass: "bg-amber-950/60 text-amber-200 border-amber-600/80 animate-pulse",
@@ -135,6 +138,7 @@ function ProspectDetailContent() {
   const [savingFollowUp, setSavingFollowUp] = useState(false);
   const [whatsappTemplate, setWhatsappTemplate] = useState<"propuesta" | "reunion" | "decision">("propuesta");
   const [customWhatsappMsg, setCustomWhatsappMsg] = useState("");
+  const todayStr = useTodayStr();
 
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisSeconds, setAnalysisSeconds] = useState(0);
@@ -459,7 +463,7 @@ function ProspectDetailContent() {
   const webVerification = diagnosis?.web_verification;
   const localSeo = diagnosis?.local_seo_visibility || "No evaluado";
   const auditFindings = diagnosis?.website_audit_findings || [];
-  const followUpStatus = getFollowUpStatus(followUpDate);
+  const followUpStatus = getFollowUpStatus(followUpDate, todayStr);
 
   const priorityStyle = audit?.priority_level
     ? PRIORITY_BADGES[audit.priority_level]
@@ -1312,7 +1316,6 @@ function ProspectDetailContent() {
                     </button>
                   ))}
                 </div>
-              </div>
               </div>
             </form>
           </div>

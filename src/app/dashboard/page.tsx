@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, FormEvent } from "react";
+import { useEffect, useState, useMemo, FormEvent, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -12,6 +12,7 @@ import {
   ConsultantProfile,
   getProspectFollowUp,
 } from "@/types/prospector";
+import { useTodayStr } from "@/lib/hooks/useTodayStr";
 
 const STATUS_CONFIG: Record<
   ProspectStatus,
@@ -82,15 +83,17 @@ const STATUS_CONFIG: Record<
   },
 };
 
-function getDashboardFollowUpBadge(followUpDate: string): {
+function getDashboardFollowUpBadge(
+  followUpDate: string,
+  todayStr: string
+): {
   label: string;
   badgeClass: string;
   dotClass: string;
   isDue: boolean;
 } | null {
   if (!followUpDate) return null;
-  const today = new Date().toISOString().split("T")[0];
-  if (followUpDate < today) {
+  if (todayStr && followUpDate < todayStr) {
     return {
       label: `Vencido (${followUpDate})`,
       badgeClass: "bg-red-950/50 text-red-300 border-red-800/70",
@@ -98,7 +101,7 @@ function getDashboardFollowUpBadge(followUpDate: string): {
       isDue: true,
     };
   }
-  if (followUpDate === today) {
+  if (todayStr && followUpDate === todayStr) {
     return {
       label: "Seguimiento HOY",
       badgeClass: "bg-amber-950/60 text-amber-200 border-amber-600/80 animate-pulse",
@@ -134,7 +137,7 @@ interface RadarPlace {
   user_rating_count: number;
 }
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter();
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -146,6 +149,7 @@ export default function DashboardPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [onlyFollowUpDue, setOnlyFollowUpDue] = useState(false);
+  const todayStr = useTodayStr();
 
   // Estado del formulario de alta rápida
   const [businessName, setBusinessName] = useState("");
@@ -527,8 +531,6 @@ export default function DashboardPage() {
     router.replace("/login");
   }
 
-  const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
-
   // Filtrado de prospectos en el pipeline
   const filteredProspects = useMemo(() => {
     return prospects.filter((p) => {
@@ -544,7 +546,7 @@ export default function DashboardPage() {
         if (p.status === "cerrado" || p.status === "descartado") return false;
         const followUp = getProspectFollowUp(p);
         if (!followUp.followUpDate) return false;
-        return followUp.followUpDate <= todayStr;
+        return todayStr ? followUp.followUpDate <= todayStr : false;
       }
 
       if (statusFilter === "all") return true;
@@ -554,11 +556,10 @@ export default function DashboardPage() {
 
   // Contadores para métricas
   const counts = useMemo(() => {
-    const today = new Date().toISOString().split("T")[0];
     const followUpsDue = prospects.filter((p) => {
       if (p.status === "cerrado" || p.status === "descartado") return false;
       const followUp = getProspectFollowUp(p);
-      return Boolean(followUp.followUpDate && followUp.followUpDate <= today);
+      return Boolean(todayStr && followUp.followUpDate && followUp.followUpDate <= todayStr);
     }).length;
 
     return {
@@ -576,7 +577,7 @@ export default function DashboardPage() {
       ).length,
       cerrados: prospects.filter((p) => p.status === "cerrado").length,
     };
-  }, [prospects]);
+  }, [prospects, todayStr]);
 
   if (loading) {
     return (
@@ -1219,6 +1220,34 @@ export default function DashboardPage() {
                 className="text-xs rounded-xl border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-neutral-200 placeholder:text-neutral-500 focus:border-neutral-600 focus:outline-none w-full sm:w-60"
               />
 
+              {/* Botón Filtro Rápido: Seguimiento Hoy / Vencido */}
+              <button
+                type="button"
+                onClick={() => setOnlyFollowUpDue(!onlyFollowUpDue)}
+                className={`text-xs font-semibold rounded-xl px-3 py-2 transition flex items-center gap-1.5 cursor-pointer border ${
+                  onlyFollowUpDue
+                    ? "bg-amber-400 text-neutral-950 border-amber-300 font-bold shadow-md shadow-amber-500/20"
+                    : counts.followUpsDue > 0
+                    ? "bg-amber-950/40 text-amber-300 border-amber-800/80 hover:bg-amber-900/40"
+                    : "bg-neutral-900/60 text-neutral-400 border-neutral-800 hover:text-white"
+                }`}
+              >
+                <span>🔔</span>
+                <span className="hidden sm:inline">Seguimiento Hoy</span>
+                <span className="sm:hidden">Seguimiento</span>
+                {counts.followUpsDue > 0 && (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      onlyFollowUpDue
+                        ? "bg-neutral-950 text-amber-300"
+                        : "bg-amber-500 text-neutral-950"
+                    }`}
+                  >
+                    {counts.followUpsDue}
+                  </span>
+                )}
+              </button>
+
               {/* Filtro por estado */}
               <select
                 value={statusFilter}
@@ -1229,8 +1258,10 @@ export default function DashboardPage() {
                 <option value="por_analizar">Por analizar</option>
                 <option value="listo_contactar">Listo para contactar</option>
                 <option value="contactado">Contactado</option>
-                <option value="reunion">Reunión</option>
+                <option value="reunion_pendiente">Reunión pendiente</option>
+                <option value="reunion">En reunión</option>
                 <option value="propuesta_enviada">Propuesta enviada</option>
+                <option value="seguimiento">Seguimiento / Por decidir</option>
                 <option value="cerrado">Cerrado</option>
                 <option value="descartado">Descartado</option>
               </select>
@@ -1260,6 +1291,8 @@ export default function DashboardPage() {
                 const statusStyle =
                   STATUS_CONFIG[prospect.status] || STATUS_CONFIG.por_analizar;
                 const isAnalyzing = analyzingId === prospect.id;
+                const followUp = getProspectFollowUp(prospect);
+                const followUpBadge = getDashboardFollowUpBadge(followUp.followUpDate, todayStr);
 
                 return (
                   <div
@@ -1286,6 +1319,15 @@ export default function DashboardPage() {
                           <span className={`w-1.5 h-1.5 rounded-full ${statusStyle.dot}`} />
                           <span>{statusStyle.label}</span>
                         </span>
+
+                        {followUpBadge && (
+                          <span
+                            className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${followUpBadge.badgeClass}`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${followUpBadge.dotClass}`} />
+                            <span>{followUpBadge.label}</span>
+                          </span>
+                        )}
                       </div>
 
                       {/* Detalles secundarios */}
@@ -1329,10 +1371,18 @@ export default function DashboardPage() {
                         )}
                       </div>
 
+                      {/* Próximo paso si está registrado */}
+                      {followUp.nextAction && (
+                        <div className="flex items-center gap-1.5 text-xs text-amber-300/90 bg-amber-950/25 px-2.5 py-1 rounded-lg border border-amber-900/40 w-fit">
+                          <span className="font-semibold text-amber-400 shrink-0">🎯 Próximo:</span>
+                          <span className="line-clamp-1">{followUp.nextAction}</span>
+                        </div>
+                      )}
+
                       {/* Observaciones si las hay */}
-                      {prospect.raw_notes && (
+                      {prospect.raw_notes && !prospect.raw_notes.startsWith("[SEGUIMIENTO:") && (
                         <p className="text-xs text-neutral-500 italic line-clamp-1">
-                          &ldquo;{prospect.raw_notes}&rdquo;
+                          &ldquo;{prospect.raw_notes.replace(/\n*\[SEGUIMIENTO:.*?\]/gi, "").trim()}&rdquo;
                         </p>
                       )}
                     </div>
@@ -1399,5 +1449,22 @@ export default function DashboardPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col items-center justify-center p-6 space-y-4">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-400 flex items-center justify-center text-neutral-950 font-black text-xl animate-pulse">
+            ⚡
+          </div>
+          <p className="text-sm text-neutral-400">Cargando consola de prospección...</p>
+        </main>
+      }
+    >
+      <DashboardContent />
+    </Suspense>
   );
 }
